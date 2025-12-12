@@ -50,9 +50,14 @@
 //   return Response.json({ success: true, data: "Thank you!" }, { status: 200 });
 // }
 
-import { generateText } from "ai";
-import { getRandomInterviewCover } from "@/lib/utils";
+import { NextRequest } from "next/server";
+import OpenAI from "openai";
 import { db } from "@/firebase/admin";
+import { getRandomInterviewCover } from "@/lib/utils";
+
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
 export async function GET() {
   return Response.json({ success: true, data: "THANK YOU!" }, { status: 200 });
@@ -61,10 +66,17 @@ export async function GET() {
 export async function POST(request: Request) {
   const { type, role, level, techstack, amount, userid } = await request.json();
 
-  try {
-    const { text } = await generateText({
-      model: "google:gemini-2.0-flash", // ✅ Correct spec v2 model
-      prompt: `
+  if (!role || !type || !level || !userid) {
+    return Response.json(
+      {
+        success: false,
+        error: { message: "role, type, level, and userid are required." },
+      },
+      { status: 400 }
+    );
+  }
+
+  const prompt = `
 Generate ONLY a valid JSON array of ${amount} interview questions.
 NO explanation. NO additional text.
 
@@ -75,18 +87,43 @@ Techstack: ${techstack}
 
 Return STRICT JSON like:
 ["Question 1", "Question 2", "Question 3"]
-`
+`;
+
+  try {
+    // 🔥 Call OpenAI
+    const response = await client.chat.completions.create({
+      model: "gpt-4o-mini", // Reliable, cheap, perfect for this use case
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.2,
     });
 
-    // --- SAFE PARSING ---
-    let questions: string[] = [];
+    const text = response.choices[0].message?.content ?? "";
+
+    // --- SAFE JSON PARSING ---
+    let questions = [];
     try {
-      questions = JSON.parse(text.trim());
+      const cleaned = text
+        .trim()
+        .replace(/^json\s*/i, "")
+        .replace(/$/, "")
+        .trim();
+
+      questions = JSON.parse(cleaned);
+      if (!Array.isArray(questions)) {
+        throw new Error("Not an array");
+      }
     } catch (err) {
-      console.error("❌ LLM did not return valid JSON:", text);
-      throw new Error("Invalid JSON output from model");
+      console.error("❌ Invalid JSON from OpenAI:", text);
+      return Response.json(
+        {
+          success: false,
+          error: { message: "OpenAI did not return valid JSON", raw: text },
+        },
+        { status: 500 }
+      );
     }
 
+    // Save interview
     const interview = {
       role,
       type,
@@ -102,18 +139,14 @@ Return STRICT JSON like:
     await db.collection("interviews").add(interview);
 
     return Response.json({ success: true }, { status: 200 });
-
   } catch (error: any) {
     console.error("🔥 SERVER ERROR:", error);
     return Response.json(
       {
         success: false,
-        error: {
-          name: error?.name,
-          message: error?.message,
-        },
+        error: { message: error?.message },
       },
-      { status: 500 }
-    );
-  }
+      { status: 500 }
+    );
+  }
 }
