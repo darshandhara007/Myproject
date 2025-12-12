@@ -19,7 +19,7 @@ export async function POST(request: Request) {
   // --------------------------------------------
 
   let args: any = {};
-
+  const toolCallId = body.message.toolCallList[0].id;
   // Case 1: Tool-call format
   if (
     body?.message?.type === "tool-calls" &&
@@ -121,7 +121,14 @@ Return STRICT JSON like:
 
     await db.collection("interviews").add(interview);
 
-    return Response.json({ success: true }, { status: 200 });
+    return Response.json({
+        results: [
+            {
+                toolCallId: toolCallId,
+                result: "Your interview has been successfully generated. You can now access it on the website."
+            }
+        ]
+    }, { status: 200 });
   } catch (error: any) {
     console.error("🔥 SERVER ERROR:", error);
     return Response.json(
