@@ -1,55 +1,3 @@
-// import { generateText } from "ai";
-// import { google } from "@ai-sdk/google";
-
-// import { db } from "@/firebase/admin";
-// import { getRandomInterviewCover } from "@/lib/utils";
-
-// export async function POST(request: Request) {
-//   const { type, role, level, techstack, amount, userid } = await request.json();
-
-//   try {
-//     const { text: questions } = await generateText({
-//       model: google("gemini-2.0-flash-001"),
-//       prompt: `Prepare questions for a job interview.
-//         The job role is ${role}.
-//         The job experience level is ${level}.
-//         The tech stack used in the job is: ${techstack}.
-//         The focus between behavioural and technical questions should lean towards: ${type}.
-//         The amount of questions required is: ${amount}.
-//         Please return only the questions, without any additional text.
-//         The questions are going to be read by a voice assistant so do not use "/" or "*" or any other special characters which might break the voice assistant.
-//         Return the questions formatted like this:
-//         ["Question 1", "Question 2", "Question 3"]
-        
-//         Thank you! <3
-//     `,
-//     });
-
-//     const interview = {
-//       role: role,
-//       type: type,
-//       level: level,
-//       techstack: techstack.split(","),
-//       questions: JSON.parse(questions),
-//       userId: userid,
-//       finalized: true,
-//       coverImage: getRandomInterviewCover(),
-//       createdAt: new Date().toISOString(),
-//     };
-
-//     await db.collection("interviews").add(interview);
-
-//     return Response.json({ success: true }, { status: 200 });
-//   } catch (error) {
-//     console.error("Error:", error);
-//     return Response.json({ success: false, error: error }, { status: 500 });
-//   }
-// }
-
-// export async function GET() {
-//   return Response.json({ success: true, data: "Thank you!" }, { status: 200 });
-// }
-
 import { NextRequest } from "next/server";
 import OpenAI from "openai";
 import { db } from "@/firebase/admin";
@@ -64,18 +12,46 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const { type, role, level, techstack, amount, userid } = await request.json();
+  const body = await request.json();
 
+  // --------------------------------------------
+  // 🔍 Extract arguments depending on the format
+  // --------------------------------------------
+
+  let args: any = {};
+
+  // Case 1: Tool-call format
+  if (
+    body?.message?.type === "tool-calls" &&
+    Array.isArray(body.message.toolCallList)
+  ) {
+    const firstCall = body.message.toolCallList[0];
+    args = firstCall?.function?.arguments ?? {};
+  } else {
+    // Case 2: Normal format
+    args = body;
+  }
+
+  const { type, role, level, techstack, amount, userid } = args;
+
+  // --------------------------------------------
+  // ⚠️ Validate
+  // --------------------------------------------
   if (!role || !type || !level || !userid) {
     return Response.json(
       {
         success: false,
-        error: { message: "role, type, level, and userid are required." },
+        error: {
+          message: "role, type, level, techstack, amount, userid are required.",
+        },
       },
       { status: 400 }
     );
   }
 
+  // --------------------------------------------
+  // 🧠 Build prompt
+  // --------------------------------------------
   const prompt = `
 Generate ONLY a valid JSON array of ${amount} interview questions.
 NO explanation. NO additional text.
@@ -90,27 +66,32 @@ Return STRICT JSON like:
 `;
 
   try {
+    // --------------------------------------------
     // 🔥 Call OpenAI
+    // --------------------------------------------
     const response = await client.chat.completions.create({
-      model: "gpt-4o-mini", // Reliable, cheap, perfect for this use case
+      model: "gpt-4o-mini",
       messages: [{ role: "user", content: prompt }],
       temperature: 0.2,
     });
 
     const text = response.choices[0].message?.content ?? "";
 
-    // --- SAFE JSON PARSING ---
+    // --------------------------------------------
+    // 🔍 Parse JSON safely
+    // --------------------------------------------
     let questions = [];
     try {
       const cleaned = text
         .trim()
-        .replace(/^json\s*/i, "")
-        .replace(/$/, "")
+        .replace(/^```json\s*/i, "")
+        .replace(/```$/, "")
         .trim();
 
       questions = JSON.parse(cleaned);
+
       if (!Array.isArray(questions)) {
-        throw new Error("Not an array");
+        throw new Error("Model did not return an array");
       }
     } catch (err) {
       console.error("❌ Invalid JSON from OpenAI:", text);
@@ -123,7 +104,9 @@ Return STRICT JSON like:
       );
     }
 
-    // Save interview
+    // --------------------------------------------
+    // 📝 Save to Firestore
+    // --------------------------------------------
     const interview = {
       role,
       type,
@@ -146,7 +129,7 @@ Return STRICT JSON like:
         success: false,
         error: { message: error?.message },
       },
-      { status: 500 }
-    );
-  }
+      { status: 500 }
+    );
+  }
 }
