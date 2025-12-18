@@ -189,6 +189,8 @@ export const feedbackSchema = z.object({
   finalAssessment: z.string(),
 });
 
+
+
 export const interviewCovers = [
   "/adobe.png",
   "/amazon.png",
