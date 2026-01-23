@@ -1,10 +1,15 @@
 'use server';
 
-import {db} from "@/firebase/admin";
-import {generateObject} from "ai";
+import { db } from "@/firebase/admin";
+import { generateObject } from "ai";
 // import {google} from "@ai-sdk/google";
-import {feedbackSchema} from "@/constants";
+import { feedbackSchema } from "@/constants";
 import { openai } from "@ai-sdk/openai";
+import OpenAI from "openai";
+
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
 export async function getInterviewsByUserId(userId: string): Promise<Interview[] | null> {
     const interviews = await db
@@ -44,57 +49,91 @@ export async function getInterviewById(id: string): Promise<Interview | null> {
 
     return interview.data() as Interview | null;
 }
-
 export async function createFeedback(params: CreateFeedbackParams) {
-    const { interviewId, userId, transcript } = params;
+  console.log("in the function")
+  const { interviewId, userId, transcript, feedbackId } = params;
 
+  try {
+    const formattedTranscript = transcript
+      .map(
+        (s: { role: string; content: string }) =>
+          `- ${s.role}: ${s.content}`
+      )
+      .join("\n");
+
+    const prompt = `
+You are a professional interviewer analyzing a mock interview.
+
+Analyze the candidate STRICTLY and return ONLY valid JSON.
+Do not add explanations or markdown.
+
+Transcript:
+${formattedTranscript}
+
+Return JSON in this exact format:
+{
+  "totalScore": number,
+  "categoryScores": {
+    "communication": number,
+    "technical": number,
+    "problemSolving": number,
+    "cultureFit": number,
+    "confidence": number
+  },
+  "strengths": string[],
+  "areasForImprovement": string[],
+  "finalAssessment": string
+}
+`;
+
+    // 🔥 OpenAI call (same style as your POST API)
+    const response = await client.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.3,
+    });
+
+    const rawText = response.choices[0].message?.content ?? "";
+
+    // 🔍 Safe JSON parse
+    let parsed;
     try {
-        const formattedTranscript = transcript.map((sentence: { role: string, content: string }) => (
-            `- ${sentence.role}: ${sentence.content}\n`
-        )).join('');
+      const cleaned = rawText
+        .trim()
+        .replace(/^```json\s*/i, "")
+        .replace(/```$/, "")
+        .trim();
 
-        const { object } = await generateObject({
-            model: google('gemini-2.0-flash-001', {
-                structuredOutputs: false,
-            }),
-        
-            schema: feedbackSchema,
-            prompt: `
-        You are an AI interviewer analyzing a mock interview. Your task is to evaluate the candidate based on structured categories. Be thorough and detailed in your analysis. Don't be lenient with the candidate. If there are mistakes or areas for improvement, point them out.
-        Transcript:
-        ${formattedTranscript}
-
-        Please score the candidate from 0 to 100 in the following areas. Do not add categories other than the ones provided:
-        - **Communication Skills**: Clarity, articulation, structured responses.
-        - **Technical Knowledge**: Understanding of key concepts for the role.
-        - **Problem-Solving**: Ability to analyze problems and propose solutions.
-        - **Cultural & Role Fit**: Alignment with company values and job role.
-        - **Confidence & Clarity**: Confidence in responses, engagement, and clarity.
-        `,
-            system:
-        "You are a professional interviewer analyzing a mock interview. Your task is to evaluate the candidate based on structured categories",
-        });
-
-        const feedback = {
-            interviewId,
-            userId,
-            totalScore: object.totalScore,
-            categoryScores: object.categoryScores,
-            strengths: object.strengths,
-            areasForImprovement: object. areasForImprovement,
-            finalAssessment: object.finalAssessment,
-            createdAt: new Date().toISOString()
-        }
-
-        const newFeedback = await db.collection('feedback')
-            .add(feedback)
-
-        return { success: true, feedbackId: newFeedback.id };
-    } catch (e) {
-        console.log('Error saving feedback', e)
-
-        return { success: false }
+      parsed = JSON.parse(cleaned);
+    } catch (err) {
+      console.error("❌ Invalid JSON from OpenAI:", rawText);
+      throw new Error("Invalid JSON returned from OpenAI");
     }
+
+    const feedback = {
+      interviewId,
+      userId,
+      totalScore: parsed.totalScore,
+      categoryScores: parsed.categoryScores,
+      strengths: parsed.strengths,
+      areasForImprovement: parsed.areasForImprovement,
+      finalAssessment: parsed.finalAssessment,
+      createdAt: new Date().toISOString(),
+    };
+
+    console.log(feedback);
+
+    const ref = feedbackId
+      ? db.collection("feedback").doc(feedbackId)
+      : db.collection("feedback").doc();
+
+    await ref.set(feedback);
+
+    return { success: true, feedbackId: ref.id };
+  } catch (error) {
+    console.error("🔥 Error saving feedback:", error);
+    return { success: false };
+  }
 }
 
 
@@ -110,10 +149,10 @@ export async function getFeedbackByInterviewId(params: GetFeedbackByInterviewIdP
         .limit(1)
         .get();
 
-    if(feedback.empty) return null;
+    if (feedback.empty) return null;
     const feedbackDoc = feedback.docs[0];
 
-    return { id: feedbackDoc.id, ...feedbackDoc.data()} as Feedback;
+    return { id: feedbackDoc.id, ...feedbackDoc.data() } as Feedback;
 }
 
 
