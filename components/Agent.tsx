@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 // 'use client';
 
 // import Image from "next/image";
@@ -187,6 +188,8 @@
 
 
 
+=======
+>>>>>>> 6a1c48aa1868c7f01b62542f1e0e903cc913da4b
 'use client';
 
 import Image from "next/image";
@@ -195,7 +198,10 @@ import {useRouter} from "next/navigation";
 import {useEffect, useState} from "react";
 import { vapi } from '@/lib/vapi.sdk';
 import {interviewer} from "@/constants";
+<<<<<<< HEAD
 import {createFeedback} from "@/lib/actions/general.action";
+=======
+>>>>>>> 6a1c48aa1868c7f01b62542f1e0e903cc913da4b
 
 enum CallStatus {
     INACTIVE = 'INACTIVE',
@@ -252,11 +258,19 @@ const Agent = ({ userName, userId, type, interviewId, questions }: AgentProps) =
     const handleGenerateFeedback = async (messages: SavedMessage[]) => {
         console.log('Generate feedback here.');
 
+<<<<<<< HEAD
         const { success, feedbackId: id } = await createFeedback({
             interviewId: interviewId!,
             userId: userId!,
             transcript: messages
         })
+=======
+        // TODO: Create a server action that generates feedback
+        const { success, id } = {
+            success: true,
+                id: 'feedback-id'
+        }
+>>>>>>> 6a1c48aa1868c7f01b62542f1e0e903cc913da4b
 
         if(success && id) {
             router.push(`/interview/${interviewId}/feedback`);
@@ -325,7 +339,11 @@ const Agent = ({ userName, userId, type, interviewId, questions }: AgentProps) =
 
             <div className="card-border">
                 <div className="card-content">
+<<<<<<< HEAD
                     <Image src="/user-avatar.png" alt="user avatar" width={540} height={540} className="rounded-full object-cover size-[120px]" />
+=======
+                    <Image src="/1760967508292.jpg" alt="user avatar" width={540} height={540} className="rounded-full object-cover size-[120px]" />
+>>>>>>> 6a1c48aa1868c7f01b62542f1e0e903cc913da4b
                     <h3>{userName}</h3>
                 </div>
             </div>
